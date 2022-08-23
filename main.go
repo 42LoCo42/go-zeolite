@@ -206,11 +206,12 @@ func simple(identity zeolite.Identity, conn net.Conn) {
 
 	buf := make([]byte, 1<<20)
 	for {
-		if _, err := os.Stdin.Read(buf); err != nil {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(0)
 		}
-		if err := stream.Send(buf); err != nil {
+		if err := stream.Send(buf[:n]); err != nil {
 			panic(err)
 		}
 	}
