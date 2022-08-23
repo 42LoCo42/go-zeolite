@@ -1,12 +1,16 @@
 package main
 
 import (
+	"encoding/base64"
+	"errors"
 	"fmt"
-	"github.com/42LoCo42/go-zeolite/zeolite"
-	"github.com/pborman/getopt/v2"
+	"io"
 	"net"
 	"os"
 	"strings"
+
+	"github.com/42LoCo42/go-zeolite/zeolite"
+	"github.com/pborman/getopt/v2"
 )
 
 const (
@@ -58,8 +62,17 @@ func printUsage() {
 }
 
 func trustAll(otherPK zeolite.SignPK) (bool, error) {
-	fmt.Fprintln(os.Stderr, "Other:", zeolite.Base64PK(otherPK))
+	fmt.Fprintln(os.Stderr, "Other:", zeolite.Base64Enc(otherPK[:]))
 	return true, nil
+}
+
+func parseAddr(addr string) (proto string, val string, err error) {
+	parts := strings.Split(addr, "://")
+	if len(parts) != 2 {
+		return proto, val, errors.New("Invalid address form")
+	} else {
+		return parts[0], parts[1], nil
+	}
 }
 
 func main() {
@@ -72,47 +85,109 @@ func main() {
 
 	getopt.SetUsage(printUsage)
 	getopt.Parse()
+	args := getopt.Args()
 
 	if *showHelp {
 		getopt.Usage()
 		os.Exit(0)
 	}
 
-	fmt.Println(*identVar)
-	fmt.Println(*identFile)
-	fmt.Println(*noCheck)
-	fmt.Println(*trustIDs)
-	fmt.Println(*trustFiles)
-	os.Exit(1)
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "missing mode")
+		getopt.Usage()
+		os.Exit(1)
+	}
+	mode := args[0]
 
 	if err := zeolite.Init(); err != nil {
 		panic(err)
 	}
 
-	identity, err := zeolite.NewIdentity()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Fprintln(os.Stderr, "Self: ", zeolite.Base64PK(identity.Public))
-
-	var conn net.Conn
-	if os.Args[1] == "client" {
-		conn, err = net.Dial("tcp", "localhost:37812")
+	var identity zeolite.Identity
+	if *identVar != "" {
+		val := os.Getenv(*identVar)
+		parts := strings.Split(val, "-")
+		if len(parts) != 2 {
+			panic("Invalid data in variable")
+		}
+		r1 := base64.NewDecoder(base64.StdEncoding, strings.NewReader(parts[0]))
+		r2 := base64.NewDecoder(base64.StdEncoding, strings.NewReader(parts[1]))
+		public, err := io.ReadAll(r1)
+		if err != nil {
+			panic("Failed decoding public key")
+		}
+		secret, err := io.ReadAll(r2)
+		if err != nil {
+			panic("Failed decoding secret key")
+		}
+		copy(identity.Public[:], public)
+		copy(identity.Secret[:], secret)
+	} else if *identFile != "" {
+		all, err := os.ReadFile(*identFile)
 		if err != nil {
 			panic(err)
 		}
+		copy(identity.Public[:], all)
+		copy(identity.Secret[:], all[len(identity.Public):])
 	} else {
-		ln, err := net.Listen("tcp", "0:37812")
-		if err != nil {
-			panic(err)
-		}
-
-		conn, err = ln.Accept()
+		var err error
+		identity, err = zeolite.NewIdentity()
 		if err != nil {
 			panic(err)
 		}
 	}
 
+	if mode == "gen" {
+		os.Stdout.Write(identity.Public[:])
+		os.Stdout.Write(identity.Secret[:])
+		fmt.Fprintf(os.Stderr, "%s-%s",
+			zeolite.Base64Enc(identity.Public[:]), zeolite.Base64Enc(identity.Secret[:]))
+		os.Exit(0)
+	}
+
+	fmt.Fprintln(os.Stderr, *noCheck)
+	fmt.Fprintln(os.Stderr, *trustIDs)
+	fmt.Fprintln(os.Stderr, *trustFiles)
+
+	fmt.Fprintln(os.Stderr, "Self: ", zeolite.Base64Enc(identity.Public[:]))
+
+	switch mode {
+	case "client":
+		if len(args) < 2 {
+			panic("Not enough arguments")
+		}
+		proto, val, err := parseAddr(args[1])
+		if err != nil {
+			panic(err)
+		}
+		conn, err := net.Dial(proto, val)
+		if err != nil {
+			panic(err)
+		}
+		simple(identity, conn)
+	case "single":
+		if len(args) < 2 {
+			panic("Not enough arguments")
+		}
+		proto, val, err := parseAddr(args[1])
+		if err != nil {
+			panic(err)
+		}
+		conn, err := net.Listen(proto, val)
+		if err != nil {
+			panic(err)
+		}
+		client, err := conn.Accept()
+		if err != nil {
+			panic(err)
+		}
+		simple(identity, client)
+	default:
+		panic(fmt.Sprint("Unknown mode: ", mode))
+	}
+}
+
+func simple(identity zeolite.Identity, conn net.Conn) {
 	stream, err := identity.NewStream(conn, trustAll)
 	if err != nil {
 		panic(err)

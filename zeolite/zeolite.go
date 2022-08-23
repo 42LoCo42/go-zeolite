@@ -58,12 +58,17 @@ func size(val []byte) C.ulonglong {
 	return C.ulonglong(len(val))
 }
 
-func Base64PK(pk SignPK) string {
+func Base64Enc(data []byte) string {
 	buf := strings.Builder{}
 	enc := base64.NewEncoder(base64.StdEncoding, &buf)
-	enc.Write(pk[:])
+	enc.Write(data)
 	enc.Close()
 	return buf.String()
+}
+
+func Base64Dec(b64 string) ([]byte, error) {
+	dec := base64.NewDecoder(base64.StdEncoding, strings.NewReader(b64))
+	return io.ReadAll(dec)
 }
 
 func Init() error {
