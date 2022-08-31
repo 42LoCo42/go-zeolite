@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/42LoCo42/go-zeolite/zeolite"
@@ -66,6 +67,8 @@ func trustAll(otherPK zeolite.SignPK) (bool, error) {
 	return true, nil
 }
 
+// address: protocol://value
+// e.g. tcp://localhost:37812
 func parseAddr(addr string) (proto string, val string, err error) {
 	parts := strings.Split(addr, "://")
 	if len(parts) != 2 {
@@ -103,8 +106,10 @@ func main() {
 		panic(err)
 	}
 
+	// init identity
 	var identity zeolite.Identity
 	if *identVar != "" {
+		// read identity from base64 in env variable
 		val := os.Getenv(*identVar)
 		parts := strings.Split(val, "-")
 		if len(parts) != 2 {
@@ -123,6 +128,7 @@ func main() {
 		copy(identity.Public[:], public)
 		copy(identity.Secret[:], secret)
 	} else if *identFile != "" {
+		// read identity from file
 		all, err := os.ReadFile(*identFile)
 		if err != nil {
 			panic(err)
@@ -130,6 +136,7 @@ func main() {
 		copy(identity.Public[:], all)
 		copy(identity.Secret[:], all[len(identity.Public):])
 	} else {
+		// if no identity was loaded, create a new one
 		var err error
 		identity, err = zeolite.NewIdentity()
 		if err != nil {
@@ -137,51 +144,106 @@ func main() {
 		}
 	}
 
+	// identities always have the public part come first
 	if mode == "gen" {
 		os.Stdout.Write(identity.Public[:])
 		os.Stdout.Write(identity.Secret[:])
 		fmt.Fprintf(os.Stderr, "%s-%s",
-			zeolite.Base64Enc(identity.Public[:]), zeolite.Base64Enc(identity.Secret[:]))
+			zeolite.Base64Enc(identity.Public[:]),
+			zeolite.Base64Enc(identity.Secret[:]))
 		os.Exit(0)
 	}
 
+	// TODO use these
 	fmt.Fprintln(os.Stderr, *noCheck)
 	fmt.Fprintln(os.Stderr, *trustIDs)
 	fmt.Fprintln(os.Stderr, *trustFiles)
 
 	fmt.Fprintln(os.Stderr, "Self: ", zeolite.Base64Enc(identity.Public[:]))
 
+	if len(args) < 2 {
+		panic("Not enough arguments")
+	}
+
+	// get address (required for all remaining modes)
+	proto, val, err := parseAddr(args[1])
+	if err != nil {
+		panic(err)
+	}
+
 	switch mode {
 	case "client":
-		if len(args) < 2 {
-			panic("Not enough arguments")
-		}
-		proto, val, err := parseAddr(args[1])
-		if err != nil {
-			panic(err)
-		}
 		conn, err := net.Dial(proto, val)
 		if err != nil {
 			panic(err)
 		}
+
 		simple(identity, conn)
 	case "single":
-		if len(args) < 2 {
-			panic("Not enough arguments")
-		}
-		proto, val, err := parseAddr(args[1])
-		if err != nil {
-			panic(err)
-		}
 		conn, err := net.Listen(proto, val)
 		if err != nil {
 			panic(err)
 		}
+
 		client, err := conn.Accept()
 		if err != nil {
 			panic(err)
 		}
+
 		simple(identity, client)
+	case "multi":
+		if len(args) < 3 {
+			panic("Not enough arguments")
+		}
+
+		conn, err := net.Listen(proto, val)
+		if err != nil {
+			panic(err)
+		}
+
+		// main loop: accept new clients, spawn child processes and handlers
+		for {
+			// TODO: handle errors more gracefully
+
+			// accept client
+			client, err := conn.Accept()
+			if err != nil {
+				panic(err)
+			}
+
+			// open zeolite stream
+			stream, err := identity.NewStream(client, trustAll)
+			if err != nil {
+				panic(err)
+			}
+
+			// create child process
+			child := exec.Command(args[2], args[3:]...)
+
+			// get pipes
+			in, err := child.StdinPipe()
+			if err != nil {
+				panic(err)
+			}
+			out, err := child.StdoutPipe()
+			if err != nil {
+				panic(err)
+			}
+			oer, err := child.StderrPipe()
+			if err != nil {
+				panic(err)
+			}
+
+			// start child
+			if err := child.Start(); err != nil {
+				panic(err)
+			}
+
+			// start await, data transfer & stderr display
+			go child.Wait()
+			go bidi(stream, out, in)
+			go io.Copy(os.Stderr, oer)
+		}
 	default:
 		panic(fmt.Sprint("Unknown mode: ", mode))
 	}
@@ -193,26 +255,17 @@ func simple(identity zeolite.Identity, conn net.Conn) {
 		panic(err)
 	}
 
+	bidi(stream, os.Stdin, os.Stdout)
+}
+
+func bidi(stream zeolite.Stream, src io.ReadCloser, dst io.WriteCloser) {
+	// src -> stream
 	go func() {
-		for {
-			msg, err := stream.Recv()
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(0)
-			}
-			fmt.Print(string(msg))
-		}
+		io.Copy(stream, src)
+		src.Close()
 	}()
 
-	buf := make([]byte, 1<<20)
-	for {
-		n, err := os.Stdin.Read(buf)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(0)
-		}
-		if err := stream.Send(buf[:n]); err != nil {
-			panic(err)
-		}
-	}
+	// stream -> dst
+	zeolite.BlockCopy(dst, stream)
+	dst.Close()
 }

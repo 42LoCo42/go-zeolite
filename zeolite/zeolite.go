@@ -283,3 +283,37 @@ func (stream Stream) Recv() (ret []byte, err error) {
 
 	return ret, nil
 }
+
+// implementations
+
+type BlockReader interface {
+	BlockRead() (p []byte, err error)
+}
+
+func BlockCopy(dst io.Writer, src BlockReader) (written int64, err error) {
+	for {
+		block, err := src.BlockRead()
+		if err != nil {
+			return written, err
+		}
+
+		n, err := dst.Write(block)
+		if err != nil {
+			return written, err
+		}
+
+		written += int64(n)
+	}
+}
+
+func (stream Stream) Write(msg []byte) (n int, err error) {
+	if err := stream.Send(msg); err == nil {
+		return len(msg), nil
+	} else {
+		return 0, err
+	}
+}
+
+func (stream Stream) BlockRead() (p []byte, err error) {
+	return stream.Recv()
+}
