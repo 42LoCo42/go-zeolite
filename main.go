@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -62,9 +63,19 @@ func printUsage() {
 	)
 }
 
-func trustAll(otherPK zeolite.SignPK) (bool, error) {
-	fmt.Fprintln(os.Stderr, "Other:", zeolite.Base64Enc(otherPK[:]))
-	return true, nil
+var trustList []string
+
+func trust(otherPK zeolite.SignPK) (bool, error) {
+	b64 := zeolite.Base64Enc(otherPK[:])
+	fmt.Fprintln(os.Stderr, "Other:", b64)
+
+	for _, id := range trustList {
+		if id == b64 {
+			return true, nil
+		}
+	}
+
+	return len(trustList) == 0, nil
 }
 
 // address: protocol://value
@@ -154,10 +165,24 @@ func main() {
 		os.Exit(0)
 	}
 
-	// TODO use these
-	fmt.Fprintln(os.Stderr, *noCheck)
-	fmt.Fprintln(os.Stderr, *trustIDs)
-	fmt.Fprintln(os.Stderr, *trustFiles)
+	trustList = *trustIDs
+
+	for _, path := range *trustFiles {
+		file, err := os.Open(path)
+		if err != nil {
+			panic(err)
+		}
+		scn := bufio.NewScanner(file)
+		for scn.Scan() {
+			trustList = append(trustList, scn.Text())
+		}
+	}
+
+	fmt.Println(trustList)
+
+	if !*noCheck && len(trustList) == 0 {
+		panic("No trust specified")
+	}
 
 	fmt.Fprintln(os.Stderr, "Self: ", zeolite.Base64Enc(identity.Public[:]))
 
@@ -212,7 +237,7 @@ func main() {
 			}
 
 			// open zeolite stream
-			stream, err := identity.NewStream(client, trustAll)
+			stream, err := identity.NewStream(client, trust)
 			if err != nil {
 				panic(err)
 			}
@@ -250,7 +275,7 @@ func main() {
 }
 
 func simple(identity zeolite.Identity, conn net.Conn) {
-	stream, err := identity.NewStream(conn, trustAll)
+	stream, err := identity.NewStream(conn, trust)
 	if err != nil {
 		panic(err)
 	}
