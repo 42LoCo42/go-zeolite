@@ -50,7 +50,7 @@ Modes:
 	Available address formats:
 		tcp://host:port
 		tcp4://host:port
-		tcp4://host:port
+		tcp6://host:port
 		unix://path
 `
 
