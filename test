@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+echo "Started" >&2
 while read -r line; do
 	echo "got $line"
 done | tee /dev/stderr

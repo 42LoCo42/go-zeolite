@@ -165,8 +165,10 @@ func main() {
 		os.Exit(0)
 	}
 
+	// trust all IDs
 	trustList = *trustIDs
 
+	// trust all IDs in files
 	for _, path := range *trustFiles {
 		file, err := os.Open(path)
 		if err != nil {
@@ -178,14 +180,14 @@ func main() {
 		}
 	}
 
-	fmt.Println(trustList)
-
+	// disable check or specify trust IDs
 	if !*noCheck && len(trustList) == 0 {
 		panic("No trust specified")
 	}
 
 	fmt.Fprintln(os.Stderr, "Self: ", zeolite.Base64Enc(identity.Public[:]))
 
+	// do we have at least mode & address?
 	if len(args) < 2 {
 		panic("Not enough arguments")
 	}
@@ -204,6 +206,7 @@ func main() {
 		}
 
 		simple(identity, conn)
+
 	case "single":
 		conn, err := net.Listen(proto, val)
 		if err != nil {
@@ -216,6 +219,7 @@ func main() {
 		}
 
 		simple(identity, client)
+
 	case "multi":
 		if len(args) < 3 {
 			panic("Not enough arguments")
@@ -228,18 +232,24 @@ func main() {
 
 		// main loop: accept new clients, spawn child processes and handlers
 		for {
-			// TODO: handle errors more gracefully
-
 			// accept client
 			client, err := conn.Accept()
+
+			reject := func() {
+				fmt.Fprintln(os.Stderr, err)
+				client.Close()
+			}
+
 			if err != nil {
-				panic(err)
+				reject()
+				continue
 			}
 
 			// open zeolite stream
 			stream, err := identity.NewStream(client, trust)
 			if err != nil {
-				panic(err)
+				reject()
+				continue
 			}
 
 			// create child process
@@ -248,20 +258,24 @@ func main() {
 			// get pipes
 			in, err := child.StdinPipe()
 			if err != nil {
-				panic(err)
+				reject()
+				continue
 			}
 			out, err := child.StdoutPipe()
 			if err != nil {
-				panic(err)
+				reject()
+				continue
 			}
 			oer, err := child.StderrPipe()
 			if err != nil {
-				panic(err)
+				reject()
+				continue
 			}
 
 			// start child
 			if err := child.Start(); err != nil {
-				panic(err)
+				reject()
+				continue
 			}
 
 			// start await, data transfer & stderr display
