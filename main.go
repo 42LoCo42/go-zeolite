@@ -279,7 +279,10 @@ func main() {
 			}
 
 			// start await, data transfer & stderr display
-			go child.Wait()
+			go func() {
+				child.Wait()
+				client.Close()
+			}()
 			go bidi(stream, out, in)
 			go io.Copy(os.Stderr, oer)
 		}
