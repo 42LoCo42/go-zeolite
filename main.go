@@ -83,7 +83,7 @@ func trust(otherPK zeolite.SignPK) (bool, error) {
 func parseAddr(addr string) (proto string, val string, err error) {
 	parts := strings.Split(addr, "://")
 	if len(parts) != 2 {
-		return proto, val, errors.New("Invalid address form")
+		return proto, val, errors.New("invalid address form")
 	} else {
 		return parts[0], parts[1], nil
 	}

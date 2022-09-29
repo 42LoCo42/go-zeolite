@@ -17,17 +17,17 @@ import (
 const Protocol = "zeolite1"
 
 var (
-	ErrInit    = errors.New("Could not initialize libsodium")
-	ErrEOS     = errors.New("End of stream reached")
-	ErrRecv    = errors.New("Could not receive")
-	ErrSend    = errors.New("Could not send")
-	ErrProto   = errors.New("Protocol violation")
-	ErrKeygen  = errors.New("Key generation failed")
-	ErrTrust   = errors.New("No trust")
-	ErrSign    = errors.New("Could not sign")
-	ErrVerify  = errors.New("Could not verify")
-	ErrEncrypt = errors.New("Could not encrypt")
-	ErrDecrypt = errors.New("Could not decrypt")
+	ErrInit    = errors.New("could not initialize libsodium")
+	ErrEOS     = errors.New("end of stream reached")
+	ErrRecv    = errors.New("could not receive")
+	ErrSend    = errors.New("could not send")
+	ErrProto   = errors.New("protocol violation")
+	ErrKeygen  = errors.New("key generation failed")
+	ErrTrust   = errors.New("no trust")
+	ErrSign    = errors.New("could not sign")
+	ErrVerify  = errors.New("could not verify")
+	ErrEncrypt = errors.New("could not encrypt")
+	ErrDecrypt = errors.New("could not decrypt")
 )
 
 type SignPK [C.crypto_sign_PUBLICKEYBYTES]byte
@@ -225,20 +225,14 @@ func (identity Identity) NewStream(conn net.Conn, cb TrustCB) (ret Stream, err e
 }
 
 func (stream Stream) Send(msg []byte) error {
-	// send size
-	buf := make([]byte, 4)
-
+	// encode size
+	buf := make([]byte, 4 + len(msg) + C.crypto_secretstream_xchacha20poly1305_ABYTES)
 	binary.LittleEndian.PutUint32(buf[:], uint32(len(msg)))
-	if _, err := stream.Conn.Write(buf[:]); err != nil {
-		return err
-	}
 
-	// encrypt & send message
-	buf = make([]byte, len(msg) + C.crypto_secretstream_xchacha20poly1305_ABYTES)
-
+	// encrypt & send everything
 	if C.crypto_secretstream_xchacha20poly1305_push(
 		&stream.SendState,
-		ptr(buf),
+		ptr(buf[4:]),
 		nil,
 		ptr(msg),
 		C.ulonglong(len(msg)),
