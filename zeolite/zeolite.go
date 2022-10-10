@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"net"
 	"strings"
 	"unsafe"
 )
@@ -44,7 +43,7 @@ type Identity struct {
 }
 
 type Stream struct {
-	Conn      net.Conn
+	Conn      io.ReadWriter
 	OtherPK   SignPK
 	SendState C.crypto_secretstream_xchacha20poly1305_state
 	RecvState C.crypto_secretstream_xchacha20poly1305_state
@@ -87,7 +86,7 @@ func NewIdentity() (ret Identity, err error) {
 	}
 }
 
-func (identity Identity) NewStream(conn net.Conn, cb TrustCB) (ret Stream, err error) {
+func (identity Identity) NewStream(conn io.ReadWriter, cb TrustCB) (ret Stream, err error) {
 	ret.Conn = conn
 
 	// exchange & check protocol
@@ -226,7 +225,7 @@ func (identity Identity) NewStream(conn net.Conn, cb TrustCB) (ret Stream, err e
 
 func (stream Stream) Send(msg []byte) error {
 	// encode size
-	buf := make([]byte, 4 + len(msg) + C.crypto_secretstream_xchacha20poly1305_ABYTES)
+	buf := make([]byte, 4+len(msg)+C.crypto_secretstream_xchacha20poly1305_ABYTES)
 	binary.LittleEndian.PutUint32(buf[:], uint32(len(msg)))
 
 	// encrypt & send everything
@@ -256,7 +255,7 @@ func (stream Stream) Recv() (ret []byte, err error) {
 
 	// receive & decrypt message
 	siz := binary.LittleEndian.Uint32(buf[:])
-	buf = make([]byte, siz + C.crypto_secretstream_xchacha20poly1305_ABYTES)
+	buf = make([]byte, siz+C.crypto_secretstream_xchacha20poly1305_ABYTES)
 	ret = make([]byte, siz)
 
 	if _, err := io.ReadFull(stream.Conn, buf); err != nil {
