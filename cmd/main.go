@@ -11,7 +11,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/42LoCo42/go-zeolite/zeolite"
+	"github.com/42LoCo42/go-zeolite"
 	"github.com/pborman/getopt/v2"
 )
 
