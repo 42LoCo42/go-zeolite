@@ -86,8 +86,8 @@ func NewIdentity() (ret Identity, err error) {
 	}
 }
 
-func (identity Identity) NewStream(conn io.ReadWriter, cb TrustCB) (ret Stream, err error) {
-	ret.Conn = conn
+func (identity Identity) NewStream(conn io.ReadWriter, cb TrustCB) (ret *Stream, err error) {
+	ret = &Stream{Conn: conn}
 
 	// exchange & check protocol
 	buf := strings.Builder{}
@@ -223,7 +223,7 @@ func (identity Identity) NewStream(conn io.ReadWriter, cb TrustCB) (ret Stream, 
 	return ret, nil
 }
 
-func (stream Stream) Send(msg []byte) error {
+func (stream *Stream) Send(msg []byte) error {
 	// encode size
 	buf := make([]byte, 4+len(msg)+C.crypto_secretstream_xchacha20poly1305_ABYTES)
 	binary.LittleEndian.PutUint32(buf[:], uint32(len(msg)))
@@ -245,7 +245,7 @@ func (stream Stream) Send(msg []byte) error {
 	return err
 }
 
-func (stream Stream) Recv() (ret []byte, err error) {
+func (stream *Stream) Recv() (ret []byte, err error) {
 	// receive size
 	buf := make([]byte, 4)
 
@@ -299,7 +299,7 @@ func BlockCopy(dst io.Writer, src BlockReader) (written int64, err error) {
 	}
 }
 
-func (stream Stream) Write(msg []byte) (n int, err error) {
+func (stream *Stream) Write(msg []byte) (n int, err error) {
 	if err := stream.Send(msg); err == nil {
 		return len(msg), nil
 	} else {
@@ -307,6 +307,6 @@ func (stream Stream) Write(msg []byte) (n int, err error) {
 	}
 }
 
-func (stream Stream) BlockRead() (p []byte, err error) {
+func (stream *Stream) BlockRead() (p []byte, err error) {
 	return stream.Recv()
 }

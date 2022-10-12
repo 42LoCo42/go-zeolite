@@ -300,7 +300,7 @@ func simple(identity zeolite.Identity, conn net.Conn) {
 	bidi(stream, os.Stdin, os.Stdout)
 }
 
-func bidi(stream zeolite.Stream, src io.ReadCloser, dst io.WriteCloser) {
+func bidi(stream *zeolite.Stream, src io.ReadCloser, dst io.WriteCloser) {
 	// src -> stream
 	go func() {
 		io.Copy(stream, src)
